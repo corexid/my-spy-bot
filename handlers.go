@@ -175,12 +175,9 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		if blockedErr != nil {
 			log.Printf("failed to consume blocked-by-notification flag: %v", blockedErr)
 		}
-		if !blockedByNotification && !delivered {
-			sendSetupInstruction(ctx, b, chatID)
-		}
 		_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "Подписка подтверждена",
+			Text:            callbackSuccessText(delivered, blockedByNotification),
 			ShowAlert:       false,
 		})
 	})
@@ -501,6 +498,13 @@ func sendSetupInstruction(ctx context.Context, b *bot.Bot, chatID int64) {
 		ChatID: chatID,
 		Text:   setup,
 	})
+}
+
+func callbackSuccessText(delivered bool, blockedByNotification bool) string {
+	if delivered || blockedByNotification {
+		return "Подписка подтверждена"
+	}
+	return "Подписка подтверждена"
 }
 
 func queuePendingDelete(cache *Cache, userID int64, author string, snapshot *messageSnapshot) {
