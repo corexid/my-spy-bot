@@ -15,6 +15,7 @@ import (
 const (
 	btnDemoText  = "▶️ Демонстрация работы бота"
 	btnSetupText = "📌 Как подключить бота"
+	cbCheckSub   = "check_sub"
 )
 
 var botStartedAt time.Time
@@ -29,9 +30,6 @@ type messageSnapshot struct {
 func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if !markUpdateOnce(cache, update) {
-			return
-		}
-		if !allowBySubscription(ctx, b, update, checker) {
 			return
 		}
 
@@ -108,7 +106,33 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		if !markUpdateOnce(cache, update) {
 			return
 		}
-		if !allowBySubscription(ctx, b, update, checker) {
+		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Чтобы получить инструкцию, подпишитесь на канал и нажмите «Проверить подписку».",
+			ReplyMarkup: checker.subscribeMarkup(),
+		})
+	})
+
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, cbCheckSub, bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		if !markUpdateOnce(cache, update) {
+			return
+		}
+		if update == nil || update.CallbackQuery == nil {
+			return
+		}
+
+		if update.CallbackQuery.Message.Message == nil {
+			return
+		}
+
+		chatID := update.CallbackQuery.Message.Message.Chat.ID
+		userID := update.CallbackQuery.From.ID
+		if !checker.Ensure(ctx, b, userID, chatID) {
+			_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+				CallbackQueryID: update.CallbackQuery.ID,
+				Text:            "Подписка не подтверждена",
+				ShowAlert:       false,
+			})
 			return
 		}
 
@@ -120,8 +144,13 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 5. В диалоге должен появиться статус «бот управляет этим чатом».`
 
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
+			ChatID: chatID,
 			Text:   setup,
+		})
+		_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "Подписка подтверждена",
+			ShowAlert:       false,
 		})
 	})
 }

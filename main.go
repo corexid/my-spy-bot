@@ -75,6 +75,7 @@ func main() {
 		bot.WithHTTPClient(10*time.Second, httpClient),
 		bot.WithAllowedUpdates(bot.AllowedUpdates{
 			models.AllowedUpdateMessage,
+			models.AllowedUpdateCallbackQuery,
 			models.AllowedUpdateBusinessConnection,
 			models.AllowedUpdateBusinessMessage,
 			models.AllowedUpdateEditedBusinessMessage,

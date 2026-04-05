@@ -73,22 +73,9 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 		}
 
 		log.Printf("subscription check failed: %v", err)
-		lowerErr := strings.ToLower(err.Error())
-		accessIssue := strings.Contains(lowerErr, "not enough rights") ||
-			strings.Contains(lowerErr, "forbidden") ||
-			strings.Contains(lowerErr, "bot is not a member") ||
-			strings.Contains(lowerErr, "member list is inaccessible")
-		if accessIssue {
-			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID:      chatID,
-				Text:        "Бот не может проверить подписку. Добавьте бота в канал и выдайте права администратора, затем нажмите /start.",
-				ReplyMarkup: s.subscribeMarkup(),
-			})
-			return false
-		}
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:      chatID,
-			Text:        "Не удалось проверить подписку. Попробуйте позже.",
+			Text:        "Чтобы продолжить, подпишитесь на канал и нажмите «Проверить подписку».",
 			ReplyMarkup: s.subscribeMarkup(),
 		})
 		return false
@@ -99,7 +86,7 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 		member.Type == models.ChatMemberTypeRestricted {
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:      chatID,
-			Text:        "Чтобы пользоваться ботом, подпишитесь на канал и нажмите /start.",
+			Text:        "Чтобы продолжить, подпишитесь на канал и нажмите «Проверить подписку».",
 			ReplyMarkup: s.subscribeMarkup(),
 		})
 		return false
@@ -129,6 +116,10 @@ func (s *SubscriptionChecker) subscribeMarkup() models.ReplyMarkup {
 				{
 					Text: "Подписаться на канал",
 					URL:  fmt.Sprintf("https://t.me/%s", s.channelUsername),
+				},
+				{
+					Text:         "Проверить подписку",
+					CallbackData: "check_sub",
 				},
 			},
 		},
