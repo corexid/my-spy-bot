@@ -107,8 +107,8 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 			return
 		}
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   "Чтобы получить инструкцию, подпишитесь на канал и нажмите «Проверить подписку».",
+			ChatID:      update.Message.Chat.ID,
+			Text:        "Чтобы получить инструкцию, подпишитесь на канал и нажмите «Проверить подписку».",
 			ReplyMarkup: checker.subscribeMarkup(),
 		})
 	})
@@ -127,7 +127,21 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 
 		chatID := update.CallbackQuery.Message.Message.Chat.ID
 		userID := update.CallbackQuery.From.ID
-		if !checker.Ensure(ctx, b, userID, chatID) {
+		subscribed, err := checker.IsSubscribed(ctx, b, userID)
+		if err != nil {
+			log.Printf("callback subscription check failed: %v", err)
+			_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+				CallbackQueryID: update.CallbackQuery.ID,
+				Text:            "Проверка временно недоступна, отправляю инструкцию",
+				ShowAlert:       false,
+			})
+		}
+		if err == nil && !subscribed {
+			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:      chatID,
+				Text:        "Подписка пока не найдена. Нажмите «Подписаться на канал», затем «Проверить подписку».",
+				ReplyMarkup: checker.subscribeMarkup(),
+			})
 			_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 				CallbackQueryID: update.CallbackQuery.ID,
 				Text:            "Подписка не подтверждена",

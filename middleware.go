@@ -57,15 +57,7 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 		return true
 	}
 
-	chatRef := s.chatRef()
-	if chatRef == nil {
-		return true
-	}
-
-	member, err := b.GetChatMember(ctx, &bot.GetChatMemberParams{
-		ChatID: chatRef,
-		UserID: userID,
-	})
+	subscribed, err := s.IsSubscribed(ctx, b, userID)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "chat not found") {
 			log.Printf("subscription check skipped: channel not found for CHANNEL_ID=%d CHANNEL_USERNAME=%s", s.channelID, s.channelUsername)
@@ -81,9 +73,7 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 		return false
 	}
 
-	if member.Type == models.ChatMemberTypeLeft ||
-		member.Type == models.ChatMemberTypeBanned ||
-		member.Type == models.ChatMemberTypeRestricted {
+	if !subscribed {
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:      chatID,
 			Text:        "Чтобы продолжить, подпишитесь на канал и нажмите «Проверить подписку».",
@@ -93,6 +83,28 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 	}
 
 	return true
+}
+
+func (s *SubscriptionChecker) IsSubscribed(ctx context.Context, b *bot.Bot, userID int64) (bool, error) {
+	chatRef := s.chatRef()
+	if chatRef == nil {
+		return true, nil
+	}
+
+	member, err := b.GetChatMember(ctx, &bot.GetChatMemberParams{
+		ChatID: chatRef,
+		UserID: userID,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	// Treat restricted users as subscribed; only left/banned are hard fail.
+	if member.Type == models.ChatMemberTypeLeft || member.Type == models.ChatMemberTypeBanned {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (s *SubscriptionChecker) chatRef() any {
