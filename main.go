@@ -21,7 +21,9 @@ import (
 
 func main() {
 	if err := godotenv.Load(); err != nil {
-		log.Printf("Warning: failed to load .env: %v", err)
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to load .env: %v", err)
+		}
 	}
 
 	token := os.Getenv("BOT_TOKEN")
@@ -30,7 +32,7 @@ func main() {
 	channelUsername := strings.TrimSpace(os.Getenv("CHANNEL_USERNAME"))
 
 	if token == "" || redisURL == "" {
-		log.Fatal("BOT_TOKEN and REDIS_URL are required in .env")
+		log.Fatal("BOT_TOKEN and REDIS_URL environment variables are required")
 	}
 
 	var channelID int64
@@ -127,4 +129,3 @@ func newTelegramHTTPClient() (*http.Client, bool) {
 		Timeout:   70 * time.Second,
 	}, usingProxy
 }
-
