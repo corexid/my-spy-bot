@@ -43,3 +43,8 @@ func (c *Cache) MarkNotificationSent(kind, businessConnectionID string, messageI
 func (c *Cache) Ping() error {
 	return c.client.Ping(c.ctx).Err()
 }
+
+func (c *Cache) MarkSubscriptionPromptSent(userID int64) (bool, error) {
+	key := fmt.Sprintf("sub_prompt:%d", userID)
+	return c.client.SetNX(c.ctx, key, "1", 45*time.Second).Result()
+}

@@ -137,3 +137,21 @@ func (s *SubscriptionChecker) subscribeMarkup() models.ReplyMarkup {
 		},
 	}
 }
+
+func (s *SubscriptionChecker) PromptSubscription(ctx context.Context, b *bot.Bot, cache *Cache, userID, chatID int64) {
+	if cache != nil && userID != 0 {
+		ok, err := cache.MarkSubscriptionPromptSent(userID)
+		if err != nil {
+			log.Printf("failed to mark subscription prompt: %v", err)
+		}
+		if err == nil && !ok {
+			return
+		}
+	}
+
+	_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:      chatID,
+		Text:        "Чтобы продолжить, подпишитесь на канал и нажмите «Проверить подписку».",
+		ReplyMarkup: s.subscribeMarkup(),
+	})
+}

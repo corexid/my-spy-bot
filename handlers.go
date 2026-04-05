@@ -227,6 +227,17 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 			return
 		}
 
+		subscribed, subErr := checker.IsSubscribed(ctx, b, connection.User.ID)
+		if subErr != nil {
+			log.Printf("failed to check subscription silently for user %d: %v", connection.User.ID, subErr)
+			checker.PromptSubscription(ctx, b, cache, connection.User.ID, connection.UserChatID)
+			return
+		}
+		if !subscribed {
+			checker.PromptSubscription(ctx, b, cache, connection.User.ID, connection.UserChatID)
+			return
+		}
+
 		author := formatActorFromChat(&m.Chat)
 		if oldSnapshot != nil && oldSnapshot.Text != "" && newSnapshot.Text != "" && oldSnapshot.Text != newSnapshot.Text {
 			notifyOnce(cache, "edit", m.BusinessConnectionID, m.ID, func() {
@@ -256,6 +267,17 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 		connection, err := b.GetBusinessConnection(ctx, &bot.GetBusinessConnectionParams{BusinessConnectionID: deleted.BusinessConnectionID})
 		if err != nil {
 			log.Printf("failed to get business connection (%s): %v", deleted.BusinessConnectionID, err)
+			return
+		}
+
+		subscribed, subErr := checker.IsSubscribed(ctx, b, connection.User.ID)
+		if subErr != nil {
+			log.Printf("failed to check subscription silently for user %d: %v", connection.User.ID, subErr)
+			checker.PromptSubscription(ctx, b, cache, connection.User.ID, connection.UserChatID)
+			return
+		}
+		if !subscribed {
+			checker.PromptSubscription(ctx, b, cache, connection.User.ID, connection.UserChatID)
 			return
 		}
 
