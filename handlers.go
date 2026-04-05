@@ -32,6 +32,9 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		if !markUpdateOnce(cache, update) {
 			return
 		}
+		if update == nil || update.Message == nil {
+			return
+		}
 
 		welcome := `Добро пожаловать!
 🕵️ Этот бот помогает в переписке:
@@ -54,14 +57,17 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		if !markUpdateOnce(cache, update) {
 			return
 		}
-		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   "pong",
-		})
+		if update == nil || update.Message == nil {
+			return
+		}
+		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{ChatID: update.Message.Chat.ID, Text: "pong"})
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/status", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if !markUpdateOnce(cache, update) {
+			return
+		}
+		if update == nil || update.Message == nil {
 			return
 		}
 
@@ -77,14 +83,14 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 
 		uptime := time.Since(botStartedAt).Round(time.Second)
 		statusText := fmt.Sprintf("Статус бота:\n• Uptime: %s\n• Redis: %s\n• Проверка подписки: %s", uptime, redisStatus, channelConfigured)
-		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   statusText,
-		})
+		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{ChatID: update.Message.Chat.ID, Text: statusText})
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, btnDemoText, bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if !markUpdateOnce(cache, update) {
+			return
+		}
+		if update == nil || update.Message == nil {
 			return
 		}
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
@@ -97,6 +103,20 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		if !markUpdateOnce(cache, update) {
 			return
 		}
+		if update == nil || update.Message == nil || update.Message.From == nil {
+			return
+		}
+
+		subscribed, err := checker.IsSubscribed(ctx, b, update.Message.From.ID)
+		if err != nil {
+			log.Printf("silent subscription check failed on setup button: %v", err)
+		}
+
+		if err == nil && subscribed {
+			sendSetupInstruction(ctx, b, update.Message.Chat.ID)
+			return
+		}
+
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:      update.Message.Chat.ID,
 			Text:        "Чтобы получить инструкцию, подпишитесь на канал и нажмите «Проверить подписку».",
@@ -108,11 +128,7 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		if !markUpdateOnce(cache, update) {
 			return
 		}
-		if update == nil || update.CallbackQuery == nil {
-			return
-		}
-
-		if update.CallbackQuery.Message.Message == nil {
+		if update == nil || update.CallbackQuery == nil || update.CallbackQuery.Message.Message == nil {
 			return
 		}
 
@@ -121,19 +137,15 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		subscribed, err := checker.IsSubscribed(ctx, b, userID)
 		if err != nil {
 			log.Printf("callback subscription check failed: %v", err)
-			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID:      chatID,
-				Text:        "Не удалось проверить подписку. Попробуйте ещё раз через пару секунд.",
-				ReplyMarkup: checker.subscribeMarkup(),
-			})
 			_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 				CallbackQueryID: update.CallbackQuery.ID,
-				Text:            "Проверка временно недоступна",
+				Text:            "Проверка временно недоступна, попробуйте позже",
 				ShowAlert:       false,
 			})
 			return
 		}
-		if err == nil && !subscribed {
+
+		if !subscribed {
 			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID:      chatID,
 				Text:        "Подписка пока не найдена. Нажмите «Подписаться на канал», затем «Проверить подписку».",
@@ -147,17 +159,7 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 			return
 		}
 
-		setup := `Как подключить бота в Telegram Business:
-1. Откройте Telegram -> Настройки -> Telegram для бизнеса.
-2. Зайдите в раздел «Чат-боты».
-3. Добавьте этого бота.
-4. Дайте права на чтение/ответы и доступ к нужным чатам.
-5. В диалоге должен появиться статус «бот управляет этим чатом».`
-
-		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID,
-			Text:   setup,
-		})
+		sendSetupInstruction(ctx, b, chatID)
 		_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 			CallbackQueryID: update.CallbackQuery.ID,
 			Text:            "Подписка подтверждена",
@@ -171,7 +173,6 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 		return
 	}
 
-	// Deduplicate repeated deliveries by update ID.
 	ok, err := cache.MarkUpdateProcessed(update.ID)
 	if err != nil {
 		log.Printf("failed to mark update processed: %v", err)
@@ -220,9 +221,7 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 		}
 
 		oldSnapshot, _ := getSnapshot(cache, m.BusinessConnectionID, m.ID)
-		connection, err := b.GetBusinessConnection(ctx, &bot.GetBusinessConnectionParams{
-			BusinessConnectionID: m.BusinessConnectionID,
-		})
+		connection, err := b.GetBusinessConnection(ctx, &bot.GetBusinessConnectionParams{BusinessConnectionID: m.BusinessConnectionID})
 		if err != nil {
 			log.Printf("failed to get business connection (%s): %v", m.BusinessConnectionID, err)
 			return
@@ -233,12 +232,7 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 			notifyOnce(cache, "edit", m.BusinessConnectionID, m.ID, func() {
 				_, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID: connection.UserChatID,
-					Text: fmt.Sprintf(
-						"%s изменил(а) сообщение:\n\nOld:\n«%s»\n\nNew:\n«%s»",
-						author,
-						oldSnapshot.Text,
-						newSnapshot.Text,
-					),
+					Text:   fmt.Sprintf("%s изменил(а) сообщение:\n\nOld:\n«%s»\n\nNew:\n«%s»", author, oldSnapshot.Text, newSnapshot.Text),
 				})
 				if sendErr != nil {
 					log.Printf("failed to send edit notification: %v", sendErr)
@@ -259,9 +253,7 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 
 	if update.DeletedBusinessMessages != nil {
 		deleted := update.DeletedBusinessMessages
-		connection, err := b.GetBusinessConnection(ctx, &bot.GetBusinessConnectionParams{
-			BusinessConnectionID: deleted.BusinessConnectionID,
-		})
+		connection, err := b.GetBusinessConnection(ctx, &bot.GetBusinessConnectionParams{BusinessConnectionID: deleted.BusinessConnectionID})
 		if err != nil {
 			log.Printf("failed to get business connection (%s): %v", deleted.BusinessConnectionID, err)
 			return
@@ -287,10 +279,7 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 	}
 
 	if update.Message != nil && update.Message.Text != "" {
-		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   "Принял: " + update.Message.Text,
-		})
+		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{ChatID: update.Message.Chat.ID, Text: "Принял: " + update.Message.Text})
 	}
 }
 
@@ -340,7 +329,6 @@ func getSnapshot(cache *Cache, businessConnectionID string, messageID int) (*mes
 
 	var snap messageSnapshot
 	if err := json.Unmarshal([]byte(raw), &snap); err != nil {
-		// Backward compatibility: old format stored plain text or file_id.
 		return &messageSnapshot{Type: "text", Text: raw}, nil
 	}
 	return &snap, nil
@@ -354,77 +342,39 @@ func sendDeletedSnapshot(ctx context.Context, b *bot.Bot, chatID int64, author s
 	header := fmt.Sprintf("%s удалил(а) сообщение:", author)
 	switch snap.Type {
 	case "text":
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID,
-			Text:   fmt.Sprintf("%s\n\n%s", header, snap.Text),
-		})
+		_, err := b.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: fmt.Sprintf("%s\n\n%s", header, snap.Text)})
 		return err
 	case "photo":
-		_, err := b.SendPhoto(ctx, &bot.SendPhotoParams{
-			ChatID:  chatID,
-			Photo:   &models.InputFileString{Data: snap.FileID},
-			Caption: withHeaderCaption(header, snap.Caption),
-		})
+		_, err := b.SendPhoto(ctx, &bot.SendPhotoParams{ChatID: chatID, Photo: &models.InputFileString{Data: snap.FileID}, Caption: withHeaderCaption(header, snap.Caption)})
 		return err
 	case "video":
-		_, err := b.SendVideo(ctx, &bot.SendVideoParams{
-			ChatID:  chatID,
-			Video:   &models.InputFileString{Data: snap.FileID},
-			Caption: withHeaderCaption(header, snap.Caption),
-		})
+		_, err := b.SendVideo(ctx, &bot.SendVideoParams{ChatID: chatID, Video: &models.InputFileString{Data: snap.FileID}, Caption: withHeaderCaption(header, snap.Caption)})
 		return err
 	case "document":
-		_, err := b.SendDocument(ctx, &bot.SendDocumentParams{
-			ChatID:   chatID,
-			Document: &models.InputFileString{Data: snap.FileID},
-			Caption:  withHeaderCaption(header, snap.Caption),
-		})
+		_, err := b.SendDocument(ctx, &bot.SendDocumentParams{ChatID: chatID, Document: &models.InputFileString{Data: snap.FileID}, Caption: withHeaderCaption(header, snap.Caption)})
 		return err
 	case "audio":
-		_, err := b.SendAudio(ctx, &bot.SendAudioParams{
-			ChatID:  chatID,
-			Audio:   &models.InputFileString{Data: snap.FileID},
-			Caption: withHeaderCaption(header, snap.Caption),
-		})
+		_, err := b.SendAudio(ctx, &bot.SendAudioParams{ChatID: chatID, Audio: &models.InputFileString{Data: snap.FileID}, Caption: withHeaderCaption(header, snap.Caption)})
 		return err
 	case "voice":
-		_, err := b.SendVoice(ctx, &bot.SendVoiceParams{
-			ChatID:  chatID,
-			Voice:   &models.InputFileString{Data: snap.FileID},
-			Caption: withHeaderCaption(header, snap.Caption),
-		})
+		_, err := b.SendVoice(ctx, &bot.SendVoiceParams{ChatID: chatID, Voice: &models.InputFileString{Data: snap.FileID}, Caption: withHeaderCaption(header, snap.Caption)})
 		return err
 	case "video_note":
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID,
-			Text:   header,
-		})
+		_, err := b.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: header})
 		if err != nil {
 			return err
 		}
-		_, err = b.SendVideoNote(ctx, &bot.SendVideoNoteParams{
-			ChatID:    chatID,
-			VideoNote: &models.InputFileString{Data: snap.FileID},
-		})
+		_, err = b.SendVideoNote(ctx, &bot.SendVideoNoteParams{ChatID: chatID, VideoNote: &models.InputFileString{Data: snap.FileID}})
 		return err
 	case "sticker":
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID,
-			Text:   header,
-		})
+		_, err := b.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: header})
 		if err != nil {
 			return err
 		}
-		_, err = b.SendSticker(ctx, &bot.SendStickerParams{
-			ChatID:  chatID,
-			Sticker: &models.InputFileString{Data: snap.FileID},
-		})
+		_, err = b.SendSticker(ctx, &bot.SendStickerParams{ChatID: chatID, Sticker: &models.InputFileString{Data: snap.FileID}})
 		return err
 	default:
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID,
-			Text:   header + "\n\n(неподдерживаемый тип сообщения)",
-		})
+		_, err := b.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: header + "\n\n(неподдерживаемый тип сообщения)"})
 		return err
 	}
 }
@@ -479,4 +429,18 @@ func formatActorFromChat(chat *models.Chat) string {
 		return chat.FirstName
 	}
 	return "Собеседник"
+}
+
+func sendSetupInstruction(ctx context.Context, b *bot.Bot, chatID int64) {
+	setup := `Как подключить бота в Telegram Business:
+1. Откройте Telegram -> Настройки -> Telegram для бизнеса.
+2. Зайдите в раздел «Чат-боты».
+3. Добавьте этого бота.
+4. Дайте права на чтение/ответы и доступ к нужным чатам.
+5. В диалоге должен появиться статус «бот управляет этим чатом».`
+
+	_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   setup,
+	})
 }
