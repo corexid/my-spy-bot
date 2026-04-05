@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/go-telegram/bot"
@@ -13,12 +15,21 @@ import (
 type SubscriptionChecker struct {
 	channelID       int64
 	channelUsername string
+	ownerUserID     int64
 }
 
 func NewSubscriptionChecker(channelID int64, channelUsername string) *SubscriptionChecker {
+	var ownerUserID int64
+	if raw := strings.TrimSpace(os.Getenv("OWNER_USER_ID")); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			ownerUserID = parsed
+		}
+	}
+
 	return &SubscriptionChecker{
 		channelID:       channelID,
 		channelUsername: strings.TrimPrefix(strings.TrimSpace(channelUsername), "@"),
+		ownerUserID:     ownerUserID,
 	}
 }
 
@@ -42,6 +53,9 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 	if userID == 0 {
 		return true
 	}
+	if s.ownerUserID != 0 && userID == s.ownerUserID {
+		return true
+	}
 
 	chatRef := s.chatRef()
 	if chatRef == nil {
@@ -59,6 +73,19 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 		}
 
 		log.Printf("subscription check failed: %v", err)
+		lowerErr := strings.ToLower(err.Error())
+		accessIssue := strings.Contains(lowerErr, "not enough rights") ||
+			strings.Contains(lowerErr, "forbidden") ||
+			strings.Contains(lowerErr, "bot is not a member") ||
+			strings.Contains(lowerErr, "member list is inaccessible")
+		if accessIssue {
+			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:      chatID,
+				Text:        "Бот не может проверить подписку. Добавьте бота в канал и выдайте права администратора, затем нажмите /start.",
+				ReplyMarkup: s.subscribeMarkup(),
+			})
+			return false
+		}
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:      chatID,
 			Text:        "Не удалось проверить подписку. Попробуйте позже.",
