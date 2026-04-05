@@ -27,6 +27,14 @@ type messageSnapshot struct {
 	Caption string `json:"caption,omitempty"`
 }
 
+type pendingNotification struct {
+	Kind     string           `json:"kind"` // delete | edit
+	Author   string           `json:"author,omitempty"`
+	OldText  string           `json:"old_text,omitempty"`
+	NewText  string           `json:"new_text,omitempty"`
+	Snapshot *messageSnapshot `json:"snapshot,omitempty"`
+}
+
 func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if !markUpdateOnce(cache, update) {
@@ -159,7 +167,13 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 			return
 		}
 
-		sendSetupInstruction(ctx, b, chatID)
+		delivered, deliverErr := deliverPendingNotifications(ctx, b, cache, userID, chatID)
+		if deliverErr != nil {
+			log.Printf("failed to deliver pending notifications: %v", deliverErr)
+		}
+		if !delivered {
+			sendSetupInstruction(ctx, b, chatID)
+		}
 		_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 			CallbackQueryID: update.CallbackQuery.ID,
 			Text:            "Подписка подтверждена",
@@ -234,6 +248,10 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 			return
 		}
 		if !subscribed {
+			author := formatActorFromChat(&m.Chat)
+			if oldSnapshot != nil && oldSnapshot.Text != "" && newSnapshot.Text != "" && oldSnapshot.Text != newSnapshot.Text {
+				queuePendingEdit(cache, connection.User.ID, author, oldSnapshot.Text, newSnapshot.Text)
+			}
 			checker.PromptSubscription(ctx, b, cache, connection.User.ID, connection.UserChatID)
 			return
 		}
@@ -277,6 +295,14 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 			return
 		}
 		if !subscribed {
+			author := formatActorFromChat(&deleted.Chat)
+			for _, messageID := range deleted.MessageIDs {
+				snapshot, err := getSnapshot(cache, deleted.BusinessConnectionID, messageID)
+				if err != nil {
+					continue
+				}
+				queuePendingDelete(cache, connection.User.ID, author, snapshot)
+			}
 			checker.PromptSubscription(ctx, b, cache, connection.User.ID, connection.UserChatID)
 			return
 		}
@@ -465,4 +491,65 @@ func sendSetupInstruction(ctx context.Context, b *bot.Bot, chatID int64) {
 		ChatID: chatID,
 		Text:   setup,
 	})
+}
+
+func queuePendingDelete(cache *Cache, userID int64, author string, snapshot *messageSnapshot) {
+	item := pendingNotification{
+		Kind:     "delete",
+		Author:   author,
+		Snapshot: snapshot,
+	}
+	raw, err := json.Marshal(item)
+	if err != nil {
+		log.Printf("failed to marshal pending delete: %v", err)
+		return
+	}
+	if err := cache.QueuePendingNotification(userID, string(raw)); err != nil {
+		log.Printf("failed to queue pending delete: %v", err)
+	}
+}
+
+func queuePendingEdit(cache *Cache, userID int64, author, oldText, newText string) {
+	item := pendingNotification{
+		Kind:    "edit",
+		Author:  author,
+		OldText: oldText,
+		NewText: newText,
+	}
+	raw, err := json.Marshal(item)
+	if err != nil {
+		log.Printf("failed to marshal pending edit: %v", err)
+		return
+	}
+	if err := cache.QueuePendingNotification(userID, string(raw)); err != nil {
+		log.Printf("failed to queue pending edit: %v", err)
+	}
+}
+
+func deliverPendingNotifications(ctx context.Context, b *bot.Bot, cache *Cache, userID, chatID int64) (bool, error) {
+	items, err := cache.PopAllPendingNotifications(userID)
+	if err != nil {
+		return false, err
+	}
+	if len(items) == 0 {
+		return false, nil
+	}
+
+	for _, raw := range items {
+		var item pendingNotification
+		if err := json.Unmarshal([]byte(raw), &item); err != nil {
+			continue
+		}
+		switch item.Kind {
+		case "edit":
+			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: chatID,
+				Text:   fmt.Sprintf("%s изменил(а) сообщение:\n\nOld:\n«%s»\n\nNew:\n«%s»", item.Author, item.OldText, item.NewText),
+			})
+		case "delete":
+			_ = sendDeletedSnapshot(ctx, b, chatID, item.Author, item.Snapshot)
+		}
+	}
+
+	return true, nil
 }
