@@ -27,12 +27,22 @@ func main() {
 	}
 
 	token := os.Getenv("BOT_TOKEN")
-	redisURL := os.Getenv("REDIS_URL")
+	if token == "" {
+		token = os.Getenv("TELEGRAM_BOT_TOKEN")
+	}
+	redisURL := firstNonEmptyEnv("REDIS_URL", "REDIS_PRIVATE_URL", "REDIS_PUBLIC_URL")
 	channelIDStr := strings.TrimSpace(os.Getenv("CHANNEL_ID"))
 	channelUsername := strings.TrimSpace(os.Getenv("CHANNEL_USERNAME"))
 
 	if token == "" || redisURL == "" {
-		log.Fatal("BOT_TOKEN and REDIS_URL environment variables are required")
+		log.Printf("env check: BOT_TOKEN=%t TELEGRAM_BOT_TOKEN=%t REDIS_URL=%t REDIS_PRIVATE_URL=%t REDIS_PUBLIC_URL=%t",
+			os.Getenv("BOT_TOKEN") != "",
+			os.Getenv("TELEGRAM_BOT_TOKEN") != "",
+			os.Getenv("REDIS_URL") != "",
+			os.Getenv("REDIS_PRIVATE_URL") != "",
+			os.Getenv("REDIS_PUBLIC_URL") != "",
+		)
+		log.Fatal("required env vars are missing: set BOT_TOKEN (or TELEGRAM_BOT_TOKEN) and REDIS_URL (or REDIS_PRIVATE_URL)")
 	}
 
 	var channelID int64
@@ -128,4 +138,14 @@ func newTelegramHTTPClient() (*http.Client, bool) {
 		Transport: transport,
 		Timeout:   70 * time.Second,
 	}, usingProxy
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		val := strings.TrimSpace(os.Getenv(key))
+		if val != "" {
+			return val
+		}
+	}
+	return ""
 }
