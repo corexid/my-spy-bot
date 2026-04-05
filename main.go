@@ -90,10 +90,12 @@ func main() {
 
 	// Resolve channel once at startup if CHANNEL_USERNAME is used.
 	checker.ResolveChannel(context.Background(), b)
+	botStartedAt = time.Now()
 	RegisterHandlers(b, cache, checker)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go startHealthLogger(ctx, cache)
 
 	log.Println("Bot started")
 	b.Start(ctx)
@@ -148,4 +150,22 @@ func firstNonEmptyEnv(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func startHealthLogger(ctx context.Context, cache *Cache) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := cache.Ping(); err != nil {
+				log.Printf("health: redis error: %v", err)
+				continue
+			}
+			log.Printf("health: ok, uptime=%s", time.Since(botStartedAt).Round(time.Second))
+		}
+	}
 }

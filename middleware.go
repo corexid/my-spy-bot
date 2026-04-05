@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 
@@ -26,9 +27,7 @@ func (s *SubscriptionChecker) ResolveChannel(ctx context.Context, b *bot.Bot) in
 		return s.channelID
 	}
 
-	chat, err := b.GetChat(ctx, &bot.GetChatParams{
-		ChatID: "@" + s.channelUsername,
-	})
+	chat, err := b.GetChat(ctx, &bot.GetChatParams{ChatID: "@" + s.channelUsername})
 	if err != nil {
 		log.Printf("warning: failed to resolve CHANNEL_USERNAME @%s: %v", s.channelUsername, err)
 		return 0
@@ -61,8 +60,9 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 
 		log.Printf("subscription check failed: %v", err)
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID,
-			Text:   "Не удалось проверить подписку. Попробуйте позже.",
+			ChatID:      chatID,
+			Text:        "Не удалось проверить подписку. Попробуйте позже.",
+			ReplyMarkup: s.subscribeMarkup(),
 		})
 		return false
 	}
@@ -71,8 +71,9 @@ func (s *SubscriptionChecker) Ensure(ctx context.Context, b *bot.Bot, userID int
 		member.Type == models.ChatMemberTypeBanned ||
 		member.Type == models.ChatMemberTypeRestricted {
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID,
-			Text:   "Пожалуйста, подпишитесь на канал, чтобы продолжить.",
+			ChatID:      chatID,
+			Text:        "Чтобы пользоваться ботом, подпишитесь на канал и нажмите /start.",
+			ReplyMarkup: s.subscribeMarkup(),
 		})
 		return false
 	}
@@ -90,3 +91,19 @@ func (s *SubscriptionChecker) chatRef() any {
 	return nil
 }
 
+func (s *SubscriptionChecker) subscribeMarkup() models.ReplyMarkup {
+	if s.channelUsername == "" {
+		return nil
+	}
+
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{
+					Text: "Подписаться на канал",
+					URL:  fmt.Sprintf("https://t.me/%s", s.channelUsername),
+				},
+			},
+		},
+	}
+}
