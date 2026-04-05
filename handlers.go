@@ -28,6 +28,9 @@ type messageSnapshot struct {
 
 func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		if !markUpdateOnce(cache, update) {
+			return
+		}
 		if !allowBySubscription(ctx, b, update, checker) {
 			return
 		}
@@ -50,6 +53,9 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/ping", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		if !markUpdateOnce(cache, update) {
+			return
+		}
 		if !allowBySubscription(ctx, b, update, checker) {
 			return
 		}
@@ -60,6 +66,9 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/status", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		if !markUpdateOnce(cache, update) {
+			return
+		}
 		if !allowBySubscription(ctx, b, update, checker) {
 			return
 		}
@@ -83,6 +92,9 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, btnDemoText, bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		if !markUpdateOnce(cache, update) {
+			return
+		}
 		if !allowBySubscription(ctx, b, update, checker) {
 			return
 		}
@@ -93,6 +105,9 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, btnSetupText, bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		if !markUpdateOnce(cache, update) {
+			return
+		}
 		if !allowBySubscription(ctx, b, update, checker) {
 			return
 		}
@@ -408,6 +423,18 @@ func notifyOnce(cache *Cache, kind, businessConnectionID string, messageID int, 
 		return
 	}
 	fn()
+}
+
+func markUpdateOnce(cache *Cache, update *models.Update) bool {
+	if update == nil {
+		return false
+	}
+	ok, err := cache.MarkUpdateProcessed(update.ID)
+	if err != nil {
+		log.Printf("failed to mark update processed: %v", err)
+		return true
+	}
+	return ok
 }
 
 func formatActorFromChat(chat *models.Chat) string {
