@@ -54,9 +54,6 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		if !markUpdateOnce(cache, update) {
 			return
 		}
-		if !allowBySubscription(ctx, b, update, checker) {
-			return
-		}
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "pong",
@@ -65,9 +62,6 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/status", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if !markUpdateOnce(cache, update) {
-			return
-		}
-		if !allowBySubscription(ctx, b, update, checker) {
 			return
 		}
 
@@ -91,9 +85,6 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, btnDemoText, bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if !markUpdateOnce(cache, update) {
-			return
-		}
-		if !allowBySubscription(ctx, b, update, checker) {
 			return
 		}
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
@@ -130,11 +121,17 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		subscribed, err := checker.IsSubscribed(ctx, b, userID)
 		if err != nil {
 			log.Printf("callback subscription check failed: %v", err)
+			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:      chatID,
+				Text:        "Не удалось проверить подписку. Попробуйте ещё раз через пару секунд.",
+				ReplyMarkup: checker.subscribeMarkup(),
+			})
 			_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 				CallbackQueryID: update.CallbackQuery.ID,
-				Text:            "Проверка временно недоступна, отправляю инструкцию",
+				Text:            "Проверка временно недоступна",
 				ShowAlert:       false,
 			})
+			return
 		}
 		if err == nil && !subscribed {
 			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
@@ -231,10 +228,6 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 			return
 		}
 
-		if !checker.Ensure(ctx, b, connection.User.ID, connection.UserChatID) {
-			return
-		}
-
 		author := formatActorFromChat(&m.Chat)
 		if oldSnapshot != nil && oldSnapshot.Text != "" && newSnapshot.Text != "" && oldSnapshot.Text != newSnapshot.Text {
 			notifyOnce(cache, "edit", m.BusinessConnectionID, m.ID, func() {
@@ -274,10 +267,6 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 			return
 		}
 
-		if !checker.Ensure(ctx, b, connection.User.ID, connection.UserChatID) {
-			return
-		}
-
 		for _, messageID := range deleted.MessageIDs {
 			snapshot, err := getSnapshot(cache, deleted.BusinessConnectionID, messageID)
 			if err != nil {
@@ -298,21 +287,11 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 	}
 
 	if update.Message != nil && update.Message.Text != "" {
-		if !allowBySubscription(ctx, b, update, checker) {
-			return
-		}
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "Принял: " + update.Message.Text,
 		})
 	}
-}
-
-func allowBySubscription(ctx context.Context, b *bot.Bot, update *models.Update, checker *SubscriptionChecker) bool {
-	if update == nil || update.Message == nil || update.Message.From == nil {
-		return true
-	}
-	return checker.Ensure(ctx, b, update.Message.From.ID, update.Message.Chat.ID)
 }
 
 func buildMainKeyboard() *models.ReplyKeyboardMarkup {
