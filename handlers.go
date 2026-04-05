@@ -171,7 +171,11 @@ func RegisterHandlers(b *bot.Bot, cache *Cache, checker *SubscriptionChecker) {
 		if deliverErr != nil {
 			log.Printf("failed to deliver pending notifications: %v", deliverErr)
 		}
-		if !delivered {
+		blockedByNotification, blockedErr := cache.ConsumeBlockedByNotification(userID)
+		if blockedErr != nil {
+			log.Printf("failed to consume blocked-by-notification flag: %v", blockedErr)
+		}
+		if !blockedByNotification && !delivered {
 			sendSetupInstruction(ctx, b, chatID)
 		}
 		_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
@@ -252,6 +256,9 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 			if oldSnapshot != nil && oldSnapshot.Text != "" && newSnapshot.Text != "" && oldSnapshot.Text != newSnapshot.Text {
 				queuePendingEdit(cache, connection.User.ID, author, oldSnapshot.Text, newSnapshot.Text)
 			}
+			if err := cache.MarkBlockedByNotification(connection.User.ID); err != nil {
+				log.Printf("failed to mark blocked-by-notification: %v", err)
+			}
 			checker.PromptSubscription(ctx, b, cache, connection.User.ID, connection.UserChatID)
 			return
 		}
@@ -302,6 +309,9 @@ func DefaultHandler(ctx context.Context, b *bot.Bot, update *models.Update, cach
 					continue
 				}
 				queuePendingDelete(cache, connection.User.ID, author, snapshot)
+			}
+			if err := cache.MarkBlockedByNotification(connection.User.ID); err != nil {
+				log.Printf("failed to mark blocked-by-notification: %v", err)
 			}
 			checker.PromptSubscription(ctx, b, cache, connection.User.ID, connection.UserChatID)
 			return

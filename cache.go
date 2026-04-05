@@ -71,3 +71,23 @@ func (c *Cache) PopAllPendingNotifications(userID int64) ([]string, error) {
 	}
 	return items, nil
 }
+
+func (c *Cache) MarkBlockedByNotification(userID int64) error {
+	key := fmt.Sprintf("blocked_by_notification:%d", userID)
+	return c.client.Set(c.ctx, key, "1", 24*time.Hour).Err()
+}
+
+func (c *Cache) ConsumeBlockedByNotification(userID int64) (bool, error) {
+	key := fmt.Sprintf("blocked_by_notification:%d", userID)
+	exists, err := c.client.Exists(c.ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	if exists == 0 {
+		return false, nil
+	}
+	if err := c.client.Del(c.ctx, key).Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
